@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.codexlimits"
         minSdk = 34
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.11-widget-network-fallback"
+        versionCode = 12
+        versionName = "0.12-widget-webview-refresh"
     }
 
     compileOptions {

@@ -47,8 +47,9 @@ object WidgetRenderer {
             R.id.widget_status,
             error ?: if (snapshot == null) "Sign in in app" else if (refreshing) "Refresh requested" else if (stale) "Stale data" else "Current"
         )
-        val refreshIntent = Intent(context, LimitsWidgetProvider::class.java).setAction(LimitsWidgetProvider.ACTION_REFRESH)
-        val refresh = PendingIntent.getBroadcast(
+        val refreshIntent = Intent(context, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_WIDGET_REFRESH)
+        val refresh = PendingIntent.getActivity(
             context, 1, refreshIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val open = PendingIntent.getActivity(

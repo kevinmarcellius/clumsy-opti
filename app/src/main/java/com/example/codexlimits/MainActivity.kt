@@ -30,6 +30,7 @@ class MainActivity : Activity() {
     private var observedHeadersBeforeRead = "None observed."
     private var lastProbeResult = ""
     private var lastDataResult = ""
+    private var widgetRefreshStarted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,12 +42,22 @@ class MainActivity : Activity() {
         snapshotSummary = findViewById(R.id.snapshot_summary)
         result.movementMethod = android.text.method.ScrollingMovementMethod()
         renderSnapshotSummary()
+        RefreshScheduler.cancel(this)
+        if (intent.action == ACTION_WIDGET_REFRESH) {
+            SnapshotStore.markRefreshRequested(this)
+            WidgetRenderer.updateAll(this)
+        }
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
-                status.text = "Page loaded. If signed in, tap Probe."
+                if (intent.action == ACTION_WIDGET_REFRESH && !widgetRefreshStarted && isChatGptPage()) {
+                    widgetRefreshStarted = true
+                    readStructuredData()
+                } else {
+                    status.text = "Page loaded. If signed in, tap Probe."
+                }
             }
 
             override fun shouldInterceptRequest(
@@ -154,7 +165,6 @@ class MainActivity : Activity() {
                         }.onSuccess { snapshot ->
                             SnapshotStore.save(this, snapshot)
                             WidgetRenderer.updateAll(this)
-                            RefreshScheduler.schedule(this)
                             renderSnapshotSummary()
                             status.text = "Widget data updated from Codex usage."
                         }.onFailure {
@@ -236,6 +246,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        const val ACTION_WIDGET_REFRESH = "com.example.codexlimits.WIDGET_REFRESH"
         private const val PRICING_DOCS_URL = "https://learn.chatgpt.com/docs/pricing"
         private val DATA_PATH_PATTERN = Regex("usage|limit|codex|wham", RegexOption.IGNORE_CASE)
         private val STATIC_ASSET_PATTERN = Regex("\\.(js|css|png|jpg|jpeg|svg|webp|woff2?)$", RegexOption.IGNORE_CASE)
