@@ -108,7 +108,12 @@ class LimitRefreshJobService : JobService() {
                     "ok" -> {
                         runCatching { LimitParser.parse(data.getString("payload")) }
                             .onSuccess {
-                                DiagnosticLog.append(this, "Background usage read succeeded: run=$runId")
+                                DiagnosticLog.append(
+                                    this,
+                                    "Background usage read succeeded: run=$runId " +
+                                        "sessionAttempts=${data.optInt("sessionAttempts", 0)} " +
+                                        "usageAttempts=${data.optInt("usageAttempts", 0)}"
+                                )
                                 SnapshotStore.save(this, it)
                                 WidgetRenderer.updateAll(this)
                                 finish(params, runId)
@@ -159,7 +164,9 @@ class LimitRefreshJobService : JobService() {
         }
         return "Fetch failed: stage=$stage origin=$origin type=$kind reason=$reason " +
             "sessionHTTP=${data.optInt("sessionStatus", 0)} " +
-            "usageHTTP=${data.optInt("authorizedStatus", 0)}"
+            "usageHTTP=${data.optInt("authorizedStatus", 0)} " +
+            "sessionAttempts=${data.optInt("sessionAttempts", 0)} " +
+            "usageAttempts=${data.optInt("usageAttempts", 0)}"
     }
 
     private fun requestStage(path: String): String? = when (path) {

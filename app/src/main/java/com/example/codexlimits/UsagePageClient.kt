@@ -19,6 +19,17 @@ object UsagePageClient {
           const url = '/backend-api/wham/usage';
           const options = {method: 'GET', credentials: 'same-origin', cache: 'no-store'};
           const diagnostic = {origin: location.origin, stage: 'session'};
+          const fetchWithRetry = async (requestUrl, requestOptions, attemptKey) => {
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              diagnostic[attemptKey] = attempt;
+              try {
+                return await fetch(requestUrl, requestOptions);
+              } catch (error) {
+                if (!(error instanceof TypeError) || attempt === 3) throw error;
+                await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+              }
+            }
+          };
           const finish = (body, diagnostic) => {
             const limits = {};
             for (const key of [
@@ -30,11 +41,13 @@ object UsagePageClient {
             window.__codexLimitsDataProbe = {
               state: 'ok',
               payload: JSON.stringify(limits),
+              sessionAttempts: diagnostic.sessionAttempts || 0,
+              usageAttempts: diagnostic.usageAttempts || 0,
               data: JSON.stringify({diagnostic, topLevelKeys: Object.keys(body), limits}, null, 2).slice(0, 10000)
             };
           };
           (async () => {
-            const sessionResponse = await fetch('/api/auth/session', options);
+            const sessionResponse = await fetchWithRetry('/api/auth/session', options, 'sessionAttempts');
             diagnostic.sessionStatus = sessionResponse.status;
             if (!sessionResponse.ok) throw new Error(JSON.stringify(diagnostic));
             const session = await sessionResponse.json();
@@ -45,9 +58,9 @@ object UsagePageClient {
 
             // Access token remains in page memory and is never returned to native code.
             diagnostic.stage = 'authorized-usage';
-            const authorized = await fetch(url, {
+            const authorized = await fetchWithRetry(url, {
               ...options, headers: {Authorization: 'Bearer ' + token}
-            });
+            }, 'usageAttempts');
             diagnostic.authorizedStatus = authorized.status;
             if (!authorized.ok) throw new Error(JSON.stringify(diagnostic));
             finish(await authorized.json(), diagnostic);
@@ -59,6 +72,8 @@ object UsagePageClient {
               errorName: String(error && error.name || 'Error').slice(0, 40),
               sessionStatus: diagnostic.sessionStatus || 0,
               authorizedStatus: diagnostic.authorizedStatus || 0,
+              sessionAttempts: diagnostic.sessionAttempts || 0,
+              usageAttempts: diagnostic.usageAttempts || 0,
               message: String(error && error.message || error).slice(0, 200)
             };
           });

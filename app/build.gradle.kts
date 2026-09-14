@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.codexlimits"
         minSdk = 34
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.16-refresh-lifecycle"
+        versionCode = 17
+        versionName = "0.17-refresh-retry"
     }
 
     compileOptions {

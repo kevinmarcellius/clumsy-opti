@@ -21,6 +21,11 @@ class LimitsWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == ACTION_REFRESH) {
+            val requestedAt = SnapshotStore.refreshRequestedAt(context)
+            if (requestedAt > 0 && System.currentTimeMillis() - requestedAt in 0L..30_000L) {
+                DiagnosticLog.append(context, "Repeat widget tap ignored: refresh already pending")
+                return
+            }
             DiagnosticLog.append(context, "Widget refresh tapped")
             SnapshotStore.markRefreshRequested(context)
             WidgetRenderer.updateAll(context)
