@@ -1,0 +1,16 @@
+# Codex limits Android proof
+
+This is the first gate for a phone-only Codex limits widget. It opens the ChatGPT usage dashboard in an Android WebView and runs a local JavaScript probe for visible limit-related text. It does **not** yet contain a widget or background refresh. Those depend on proving that sign-in and a real five-hour and weekly read work on Android.
+
+The probe keeps all output on screen. It does not send page text to another server, extract cookies or tokens, or store the result. The **Clear** button removes this app's WebView cookies and web storage. This proof app's WebView cookie storage is not the intended Keystore-protected authentication design for the final app.
+
+The included GitHub Actions workflow builds a sideloadable debug APK on `ubuntu-24.04`, whose hosted runner includes Android SDK platform 35 and build tools. To use it, put this directory at the root of a GitHub repository, push to `main`, open **Actions → Build Android proof APK**, and download the `codex-limits-proof-apk` artifact. Unzip it and install `app-debug.apk` on the phone. The APK is a debug build for personal testing, not a release-signed package.
+
+To test on an Android 14+ phone or emulator:
+
+1. Install the GitHub Actions APK, or build `app:assembleDebug` locally with Android SDK 35 and JDK 17.
+2. Open the app. Sign in inside its WebView, then navigate to the Codex usage dashboard. If the initial URL moves or fails, tap **Docs link** and follow the official usage dashboard link on that page.
+3. Tap **Probe**. Compare the shown lines with the visible dashboard, especially five-hour/weekly percentages and reset times. Reopen the app and repeat to test session persistence.
+4. Tap **Clear** and confirm the session is gone. Record whether sign-in works, whether the limit lines are present, and whether values change after a refresh.
+
+Reading visible dashboard text is inherently brittle because it is not a documented API contract. A successful manual probe would not yet prove reliable unattended refresh. Do not build the widget from guessed or hard-coded values if this gate fails.
