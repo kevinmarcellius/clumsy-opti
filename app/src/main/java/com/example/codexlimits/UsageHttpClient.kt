@@ -11,9 +11,10 @@ object UsageHttpClient {
     private const val USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
     private const val REFERER = "https://chatgpt.com/codex/settings/usage"
 
-    fun read(cookie: String?, userAgent: String): LimitSnapshot {
+    fun read(cookie: String?, userAgent: String, network: Network?): LimitSnapshot {
         if (cookie.isNullOrBlank()) throw AuthFailure()
-        val session = request(SESSION_URL, userAgent, cookie, null)
+        val assignedNetwork = network ?: throw IOException("No active network assigned to refresh job")
+        val session = request(SESSION_URL, userAgent, cookie, null, assignedNetwork)
         if (session.status == 401 || session.status == 403) {
             throw AuthFailure()
         }
@@ -22,7 +23,7 @@ object UsageHttpClient {
         val accessToken = body.optString("accessToken").ifBlank { body.optString("access_token") }
         if (accessToken.isBlank()) throw AuthFailure()
 
-        val usage = request(USAGE_URL, userAgent, cookie, accessToken)
+        val usage = request(USAGE_URL, userAgent, cookie, accessToken, assignedNetwork)
         if (usage.status == 401 || usage.status == 403) {
             throw AuthFailure()
         }
@@ -37,8 +38,14 @@ object UsageHttpClient {
         else -> "Limit data unavailable"
     }
 
-    private fun request(url: String, userAgent: String, cookie: String, token: String?): Response {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+    private fun request(
+        url: String,
+        userAgent: String,
+        cookie: String,
+        token: String?,
+        network: Network
+    ): Response {
+        val connection = (network.openConnection(URL(url)) as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 10_000
             readTimeout = 10_000
@@ -65,3 +72,4 @@ object UsageHttpClient {
     private class AuthFailure : Exception()
     private class HttpFailure(val request: String, val status: Int) : Exception()
 }
+import android.net.Network

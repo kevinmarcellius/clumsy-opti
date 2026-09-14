@@ -15,6 +15,7 @@ object RefreshScheduler {
         val scheduler = context.getSystemService(JobScheduler::class.java)
         val job = JobInfo.Builder(JOB_ID, ComponentName(context, LimitRefreshJobService::class.java))
             .setMinimumLatency(delayMillis.coerceAtLeast(0))
+            .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
             .build()
         scheduler.schedule(job)
     }

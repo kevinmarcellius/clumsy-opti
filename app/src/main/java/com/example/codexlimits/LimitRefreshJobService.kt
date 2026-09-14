@@ -26,8 +26,9 @@ class LimitRefreshJobService : JobService() {
         // Neither the cookie nor the short-lived access token is persisted by this job.
         val cookie = CookieManager.getInstance().getCookie(UsageHttpClient.SESSION_URL)
         val userAgent = WebSettings.getDefaultUserAgent(this)
+        val network = params.network
         worker = Thread {
-            val result = runCatching { UsageHttpClient.read(cookie, userAgent) }
+            val result = runCatching { UsageHttpClient.read(cookie, userAgent, network) }
             handler.post {
                 if (finished) return@post
                 result.onSuccess { SnapshotStore.save(this, it) }
