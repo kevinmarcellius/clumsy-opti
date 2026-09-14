@@ -18,6 +18,7 @@ object UsagePageClient {
           window.__codexLimitsDataProbe = {state: 'pending'};
           const url = '/backend-api/wham/usage';
           const options = {method: 'GET', credentials: 'same-origin', cache: 'no-store'};
+          const diagnostic = {origin: location.origin, stage: 'direct-usage'};
           const finish = (body, diagnostic) => {
             const limits = {};
             for (const key of [
@@ -33,11 +34,11 @@ object UsagePageClient {
             };
           };
           (async () => {
-            const diagnostic = {};
             const direct = await fetch(url, options);
             diagnostic.directStatus = direct.status;
             if (direct.ok) return finish(await direct.json(), diagnostic);
 
+            diagnostic.stage = 'session';
             const sessionResponse = await fetch('/api/auth/session', {credentials: 'same-origin'});
             diagnostic.sessionStatus = sessionResponse.status;
             if (!sessionResponse.ok) throw new Error(JSON.stringify(diagnostic));
@@ -48,6 +49,7 @@ object UsagePageClient {
             if (!diagnostic.hasAccessToken) throw new Error(JSON.stringify(diagnostic));
 
             // Access token remains in page memory and is never returned to native code.
+            diagnostic.stage = 'authorized-usage';
             const authorized = await fetch(url, {
               ...options, headers: {Authorization: 'Bearer ' + token}
             });
@@ -56,7 +58,14 @@ object UsagePageClient {
             finish(await authorized.json(), diagnostic);
           })().catch(error => {
             window.__codexLimitsDataProbe = {
-              state: 'error', message: String(error && error.message || error)
+              state: 'error',
+              stage: diagnostic.stage,
+              origin: diagnostic.origin,
+              errorName: String(error && error.name || 'Error').slice(0, 40),
+              directStatus: diagnostic.directStatus || 0,
+              sessionStatus: diagnostic.sessionStatus || 0,
+              authorizedStatus: diagnostic.authorizedStatus || 0,
+              message: String(error && error.message || error).slice(0, 200)
             };
           });
           return 'started';

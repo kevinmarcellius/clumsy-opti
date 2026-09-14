@@ -16,6 +16,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".DiagnosticsActivity"
+            android:exported="false" />
+
         <receiver
             android:name=".LimitsWidgetProvider"
             android:exported="true">

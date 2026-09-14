@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -100,6 +101,9 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.copy_docs).setOnClickListener {
             copyText("OpenAI Docs URL", PRICING_DOCS_URL)
         }
+        findViewById<Button>(R.id.view_logs).setOnClickListener {
+            startActivity(Intent(this, DiagnosticsActivity::class.java))
+        }
 
         if (savedInstanceState == null) webView.loadUrl(UsagePageClient.DASHBOARD_URL)
         else webView.restoreState(savedInstanceState)
@@ -131,11 +135,13 @@ class MainActivity : Activity() {
 
     private fun readStructuredData() {
         if (!isChatGptPage()) {
+            DiagnosticLog.append(this, "Foreground read skipped: ChatGPT page not open")
             lastDataResult = "Open the signed-in ChatGPT dashboard before reading data."
             result.text = lastDataResult
             return
         }
         lastDataResult = ""
+        DiagnosticLog.append(this, "Foreground usage read started")
         status.text = "Reading structured limits from this WebView session…"
         result.text = "Waiting for /backend-api/wham/usage…"
         observedHeadersBeforeRead = synchronized(usageHeaderNames) {
@@ -146,6 +152,7 @@ class MainActivity : Activity() {
 
     private fun pollStructuredData(attempt: Int) {
         if (attempt >= 30) {
+            DiagnosticLog.append(this, "Foreground usage read timed out")
             status.text = "Data request timed out."
             lastDataResult = "No response after 15 seconds. Reload the dashboard and try again."
             result.text = lastDataResult
@@ -162,12 +169,14 @@ class MainActivity : Activity() {
                         runCatching {
                             LimitParser.parse(data.getString("payload"))
                         }.onSuccess { snapshot ->
+                            DiagnosticLog.append(this, "Foreground usage read succeeded")
                             SnapshotStore.save(this, snapshot)
                             WidgetRenderer.updateAll(this)
                             RefreshScheduler.schedule(this)
                             renderSnapshotSummary()
                             status.text = "Widget data updated from Codex usage."
                         }.onFailure {
+                            DiagnosticLog.append(this, "Foreground limit response could not be parsed")
                             SnapshotStore.markError(this, "Limit data unavailable")
                             WidgetRenderer.updateAll(this)
                             renderSnapshotSummary()
@@ -175,6 +184,11 @@ class MainActivity : Activity() {
                         }
                     }
                     "error" -> {
+                        val stage = when (data.optString("stage")) {
+                            "direct-usage", "session", "authorized-usage" -> data.optString("stage")
+                            else -> "unknown"
+                        }
+                        DiagnosticLog.append(this, "Foreground request failed at $stage")
                         status.text = "Structured data read failed."
                         lastDataResult = "Dashboard request header names: $observedHeadersBeforeRead\n\n" +
                             data.optString("message", "Unknown error")
@@ -219,6 +233,7 @@ class MainActivity : Activity() {
             lastProbeResult = ""
             lastDataResult = ""
             SnapshotStore.clear(this)
+            DiagnosticLog.clear(this)
             RefreshScheduler.cancel(this)
             WidgetRenderer.updateAll(this)
             renderSnapshotSummary()

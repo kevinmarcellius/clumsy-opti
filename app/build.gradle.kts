@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.codexlimits"
         minSdk = 34
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.13-background-webview"
+        versionCode = 14
+        versionName = "0.14-widget-diagnostics"
     }
 
     compileOptions {
