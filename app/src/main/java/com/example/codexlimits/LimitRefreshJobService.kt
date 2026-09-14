@@ -122,7 +122,6 @@ class LimitRefreshJobService : JobService() {
     private fun probeError(data: JSONObject): String {
         if (data.optString("origin") != "https://chatgpt.com") return "Background page origin mismatch"
         return when (data.optString("stage")) {
-            "direct-usage" -> "Background direct usage fetch failed"
             "session" -> "Background session fetch failed"
             "authorized-usage" -> "Background usage fetch failed"
             else -> "Background WebView request failed"
@@ -131,7 +130,7 @@ class LimitRefreshJobService : JobService() {
 
     private fun probeDetails(data: JSONObject): String {
         val stage = when (data.optString("stage")) {
-            "direct-usage", "session", "authorized-usage" -> data.optString("stage")
+            "session", "authorized-usage" -> data.optString("stage")
             else -> "unknown"
         }
         val origin = if (data.optString("origin") == "https://chatgpt.com") "chatgpt.com" else "other"
@@ -145,7 +144,6 @@ class LimitRefreshJobService : JobService() {
             else -> "Other WebView error"
         }
         return "Fetch failed: stage=$stage origin=$origin type=$kind reason=$reason " +
-            "directHTTP=${data.optInt("directStatus", 0)} " +
             "sessionHTTP=${data.optInt("sessionStatus", 0)} " +
             "usageHTTP=${data.optInt("authorizedStatus", 0)}"
     }

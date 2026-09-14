@@ -185,7 +185,7 @@ class MainActivity : Activity() {
                     }
                     "error" -> {
                         val stage = when (data.optString("stage")) {
-                            "direct-usage", "session", "authorized-usage" -> data.optString("stage")
+                            "session", "authorized-usage" -> data.optString("stage")
                             else -> "unknown"
                         }
                         DiagnosticLog.append(this, "Foreground request failed at $stage")

@@ -18,7 +18,7 @@ object UsagePageClient {
           window.__codexLimitsDataProbe = {state: 'pending'};
           const url = '/backend-api/wham/usage';
           const options = {method: 'GET', credentials: 'same-origin', cache: 'no-store'};
-          const diagnostic = {origin: location.origin, stage: 'direct-usage'};
+          const diagnostic = {origin: location.origin, stage: 'session'};
           const finish = (body, diagnostic) => {
             const limits = {};
             for (const key of [
@@ -34,12 +34,7 @@ object UsagePageClient {
             };
           };
           (async () => {
-            const direct = await fetch(url, options);
-            diagnostic.directStatus = direct.status;
-            if (direct.ok) return finish(await direct.json(), diagnostic);
-
-            diagnostic.stage = 'session';
-            const sessionResponse = await fetch('/api/auth/session', {credentials: 'same-origin'});
+            const sessionResponse = await fetch('/api/auth/session', options);
             diagnostic.sessionStatus = sessionResponse.status;
             if (!sessionResponse.ok) throw new Error(JSON.stringify(diagnostic));
             const session = await sessionResponse.json();
@@ -62,7 +57,6 @@ object UsagePageClient {
               stage: diagnostic.stage,
               origin: diagnostic.origin,
               errorName: String(error && error.name || 'Error').slice(0, 40),
-              directStatus: diagnostic.directStatus || 0,
               sessionStatus: diagnostic.sessionStatus || 0,
               authorizedStatus: diagnostic.authorizedStatus || 0,
               message: String(error && error.message || error).slice(0, 200)

@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.codexlimits"
         minSdk = 34
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.14-widget-diagnostics"
+        versionCode = 15
+        versionName = "0.15-session-first"
     }
 
     compileOptions {
