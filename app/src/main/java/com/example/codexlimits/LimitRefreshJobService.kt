@@ -2,6 +2,7 @@ package com.example.codexlimits
 
 import android.app.job.JobParameters
 import android.app.job.JobService
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -18,6 +19,7 @@ class LimitRefreshJobService : JobService() {
     private var webView: WebView? = null
     private var finished = true
     private var readStarted = false
+    private var dashboardFallback = false
     private var activeRunId = -1L
 
     override fun onStartJob(params: JobParameters): Boolean {
@@ -29,6 +31,7 @@ class LimitRefreshJobService : JobService() {
         }
         finished = false
         readStarted = false
+        dashboardFallback = false
         activeRunId = runId
         DiagnosticLog.append(this, "Background job started: run=$runId")
         if (!getSystemService(PowerManager::class.java).isInteractive) {
@@ -41,15 +44,19 @@ class LimitRefreshJobService : JobService() {
             return false
         }
 
-        handler.postDelayed({ fail(params, runId, "Background refresh timed out") }, 30_000)
+        handler.postDelayed({ fail(params, runId, "Background refresh timed out") }, 45_000)
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, url: String) {
                     if (!isActive(runId) || readStarted) return
+                    if (dashboardFallback && Uri.parse(url).host != "chatgpt.com") return
                     readStarted = true
-                    DiagnosticLog.append(this@LimitRefreshJobService, "Local WebView document loaded: run=$runId")
+                    DiagnosticLog.append(
+                        this@LimitRefreshJobService,
+                        "${if (dashboardFallback) "Dashboard" else "Local WebView document"} loaded: run=$runId"
+                    )
                     view.evaluateJavascript(UsagePageClient.START_SCRIPT) { poll(params, runId, 0) }
                 }
 
@@ -59,6 +66,14 @@ class LimitRefreshJobService : JobService() {
                     error: WebResourceError
                 ) {
                     if (!isActive(runId)) return
+                    if (dashboardFallback && request.isForMainFrame) {
+                        DiagnosticLog.append(
+                            this@LimitRefreshJobService,
+                            "Dashboard WebView network error code ${error.errorCode}"
+                        )
+                        fail(params, runId, "Background dashboard load failed")
+                        return
+                    }
                     val stage = requestStage(request.url.path.orEmpty()) ?: return
                     DiagnosticLog.append(
                         this@LimitRefreshJobService,
@@ -122,7 +137,14 @@ class LimitRefreshJobService : JobService() {
                     }
                     "error" -> {
                         DiagnosticLog.append(this, probeDetails(data))
-                        fail(params, runId, probeError(data))
+                        if (shouldLoadDashboard(data)) {
+                            dashboardFallback = true
+                            readStarted = false
+                            DiagnosticLog.append(this, "Retrying in dashboard WebView: run=$runId")
+                            view.loadUrl(UsagePageClient.DASHBOARD_URL)
+                        } else {
+                            fail(params, runId, probeError(data))
+                        }
                     }
                     else -> poll(params, runId, attempt + 1)
                 }
@@ -146,6 +168,12 @@ class LimitRefreshJobService : JobService() {
             else -> "Background WebView request failed"
         }
     }
+
+    private fun shouldLoadDashboard(data: JSONObject): Boolean =
+        !dashboardFallback &&
+            data.optString("stage") == "session" &&
+            data.optString("errorName") == "TypeError" &&
+            data.optString("message").contains("Failed to fetch", ignoreCase = true)
 
     private fun probeDetails(data: JSONObject): String {
         val stage = when (data.optString("stage")) {
