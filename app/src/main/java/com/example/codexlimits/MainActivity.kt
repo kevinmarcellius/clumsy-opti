@@ -42,7 +42,6 @@ class MainActivity : Activity() {
         snapshotSummary = findViewById(R.id.snapshot_summary)
         result.movementMethod = android.text.method.ScrollingMovementMethod()
         renderSnapshotSummary()
-        RefreshScheduler.cancel(this)
         if (intent.action == ACTION_WIDGET_REFRESH) {
             SnapshotStore.markRefreshRequested(this)
             WidgetRenderer.updateAll(this)
@@ -165,6 +164,7 @@ class MainActivity : Activity() {
                         }.onSuccess { snapshot ->
                             SnapshotStore.save(this, snapshot)
                             WidgetRenderer.updateAll(this)
+                            RefreshScheduler.schedule(this)
                             renderSnapshotSummary()
                             status.text = "Widget data updated from Codex usage."
                         }.onFailure {

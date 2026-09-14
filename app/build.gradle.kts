@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.codexlimits"
         minSdk = 34
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.12-widget-webview-refresh"
+        versionCode = 13
+        versionName = "0.13-background-webview"
     }
 
     compileOptions {

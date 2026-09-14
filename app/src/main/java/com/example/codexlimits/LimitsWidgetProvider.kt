@@ -6,13 +6,13 @@ import android.content.Intent
 
 class LimitsWidgetProvider : AppWidgetProvider() {
     override fun onEnabled(context: Context) {
-        RefreshScheduler.cancel(context)
         WidgetRenderer.updateAll(context)
+        RefreshScheduler.schedule(context, 0)
     }
 
     override fun onUpdate(context: Context, manager: android.appwidget.AppWidgetManager, ids: IntArray) {
-        RefreshScheduler.cancel(context)
         WidgetRenderer.updateAll(context)
+        RefreshScheduler.schedule(context, 0)
     }
 
     override fun onDisabled(context: Context) {
@@ -24,11 +24,7 @@ class LimitsWidgetProvider : AppWidgetProvider() {
         if (intent.action == ACTION_REFRESH) {
             SnapshotStore.markRefreshRequested(context)
             WidgetRenderer.updateAll(context)
-            context.startActivity(
-                Intent(context, MainActivity::class.java)
-                    .setAction(MainActivity.ACTION_WIDGET_REFRESH)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
+            RefreshScheduler.schedule(context, expedited = true)
         }
     }
 
