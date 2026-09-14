@@ -3,6 +3,8 @@ package com.example.codexlimits
 import android.app.Activity
 import android.os.Bundle
 import android.webkit.CookieManager
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -15,6 +17,7 @@ class MainActivity : Activity() {
     private lateinit var webView: WebView
     private lateinit var status: TextView
     private lateinit var result: TextView
+    private val requestPaths = java.util.Collections.synchronizedSet(linkedSetOf<String>())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,6 +33,24 @@ class MainActivity : Activity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 status.text = "Page loaded. If signed in, tap Probe."
+            }
+
+            override fun shouldInterceptRequest(
+                view: WebView,
+                request: WebResourceRequest
+            ): WebResourceResponse? {
+                val uri = request.url
+                if (uri.host == "chatgpt.com") {
+                    val path = uri.path.orEmpty()
+                    if (DATA_PATH_PATTERN.containsMatchIn(path) &&
+                        !STATIC_ASSET_PATTERN.containsMatchIn(path) &&
+                        requestPaths.size < 40
+                    ) {
+                        // Never collect query strings, headers, bodies, or cookies.
+                        requestPaths.add(path.replace(OPAQUE_SEGMENT_PATTERN, "/[id]"))
+                    }
+                }
+                return super.shouldInterceptRequest(view, request)
             }
         }
 
@@ -58,7 +79,12 @@ class MainActivity : Activity() {
         webView.evaluateJavascript(PROBE_SCRIPT) { jsonValue ->
             val text = runCatching { JSONTokener(jsonValue).nextValue() as String }
                 .getOrElse { "Could not decode the page probe." }
-            result.text = text
+            val paths = synchronized(requestPaths) { requestPaths.take(24) }
+            result.text = buildString {
+                append(text)
+                append("\n\nPossible dashboard request paths (no query strings):\n")
+                append(if (paths.isEmpty()) "None observed." else paths.joinToString("\n"))
+            }
             status.text = "Probe complete. Compare these lines with the dashboard."
         }
     }
@@ -69,6 +95,7 @@ class MainActivity : Activity() {
             WebStorage.getInstance().deleteAllData()
             webView.clearCache(true)
             webView.clearHistory()
+            requestPaths.clear()
             result.text = "Session cleared."
             status.text = "Sign in again to test session removal."
             webView.loadUrl(DASHBOARD_URL)
@@ -94,6 +121,9 @@ class MainActivity : Activity() {
     companion object {
         private const val DASHBOARD_URL = "https://chatgpt.com/codex/settings/usage"
         private const val PRICING_DOCS_URL = "https://learn.chatgpt.com/docs/pricing"
+        private val DATA_PATH_PATTERN = Regex("usage|limit|codex|wham", RegexOption.IGNORE_CASE)
+        private val STATIC_ASSET_PATTERN = Regex("\\.(js|css|png|jpg|jpeg|svg|webp|woff2?)$", RegexOption.IGNORE_CASE)
+        private val OPAQUE_SEGMENT_PATTERN = Regex("/[A-Za-z0-9_-]{32,}(?=/|$)")
         private val PROBE_SCRIPT = """
             (function () {
               const text = document.body ? document.body.innerText : '';
