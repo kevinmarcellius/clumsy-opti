@@ -14,8 +14,7 @@ object UsageHttpClient {
 
     fun read(cookie: String?, userAgent: String, network: Network?): LimitSnapshot {
         if (cookie.isNullOrBlank()) throw AuthFailure()
-        val assignedNetwork = network ?: throw IOException("No active network assigned to refresh job")
-        val session = request(SESSION_URL, userAgent, cookie, null, assignedNetwork)
+        val session = requestWithFallback("Session", SESSION_URL, userAgent, cookie, null, network)
         if (session.status == 401 || session.status == 403) {
             throw AuthFailure()
         }
@@ -24,7 +23,7 @@ object UsageHttpClient {
         val accessToken = body.optString("accessToken").ifBlank { body.optString("access_token") }
         if (accessToken.isBlank()) throw AuthFailure()
 
-        val usage = request(USAGE_URL, userAgent, cookie, accessToken, assignedNetwork)
+        val usage = requestWithFallback("Usage", USAGE_URL, userAgent, cookie, accessToken, network)
         if (usage.status == 401 || usage.status == 403) {
             throw AuthFailure()
         }
@@ -35,8 +34,34 @@ object UsageHttpClient {
     fun safeError(error: Throwable): String = when (error) {
         is AuthFailure -> "Sign in required"
         is HttpFailure -> "${error.request} request HTTP ${error.status}"
-        is IOException -> "Network unavailable (${error.javaClass.simpleName})"
+        is IOException -> error.message?.take(100) ?: "Network unavailable (${error.javaClass.simpleName})"
         else -> "Limit data unavailable"
+    }
+
+    private fun requestWithFallback(
+        stage: String,
+        url: String,
+        userAgent: String,
+        cookie: String,
+        token: String?,
+        network: Network?
+    ): Response {
+        val assigned = runCatching {
+            if (network == null) throw IOException("No active Android network")
+            request(url, userAgent, cookie, token, network)
+        }
+        assigned.getOrNull()?.let { return it }
+        val assignedFailure = assigned.exceptionOrNull()
+        if (assignedFailure !is IOException) throw assignedFailure
+        return try {
+            request(url, userAgent, cookie, token, null)
+        } catch (defaultFailure: IOException) {
+            throw IOException(
+                "$stage connection failed: ${defaultFailure.javaClass.simpleName}" +
+                    defaultFailure.message?.let { " ($it)" }.orEmpty(),
+                assignedFailure
+            )
+        }
     }
 
     private fun request(
@@ -44,9 +69,10 @@ object UsageHttpClient {
         userAgent: String,
         cookie: String,
         token: String?,
-        network: Network
+        network: Network?
     ): Response {
-        val connection = (network.openConnection(URL(url)) as HttpURLConnection).apply {
+        val requestUrl = URL(url)
+        val connection = ((network?.openConnection(requestUrl) ?: requestUrl.openConnection()) as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 10_000
             readTimeout = 10_000

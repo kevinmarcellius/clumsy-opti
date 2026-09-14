@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.codexlimits"
         minSdk = 34
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.10-widget-active-network"
+        versionCode = 11
+        versionName = "0.11-widget-network-fallback"
     }
 
     compileOptions {
