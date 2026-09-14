@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.codexlimits"
         minSdk = 34
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4-proof"
+        versionCode = 5
+        versionName = "0.5-proof"
     }
 
     compileOptions {

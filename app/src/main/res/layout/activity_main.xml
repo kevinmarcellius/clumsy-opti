@@ -33,6 +33,19 @@
             android:text="Docs link" />
 
         <Button
+            android:id="@+id/clear_session"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Clear" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
             android:id="@+id/probe"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -45,13 +58,33 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Data JSON" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
 
         <Button
-            android:id="@+id/clear_session"
+            android:id="@+id/copy_probe"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Clear" />
+            android:text="Copy Probe" />
+
+        <Button
+            android:id="@+id/copy_data"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Copy JSON" />
+
+        <Button
+            android:id="@+id/copy_docs"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Copy Docs URL" />
     </LinearLayout>
 
     <TextView

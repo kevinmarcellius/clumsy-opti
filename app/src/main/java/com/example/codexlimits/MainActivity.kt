@@ -1,6 +1,9 @@
 package com.example.codexlimits
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -12,6 +15,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import org.json.JSONTokener
 import org.json.JSONObject
 
@@ -24,6 +28,8 @@ class MainActivity : Activity() {
     private val usageHeaderNames = java.util.Collections.synchronizedSet(linkedSetOf<String>())
     private val mainHandler = Handler(Looper.getMainLooper())
     private var observedHeadersBeforeRead = "None observed."
+    private var lastProbeResult = ""
+    private var lastDataResult = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,6 +79,15 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.probe).setOnClickListener { probePage() }
         findViewById<Button>(R.id.read_data).setOnClickListener { readStructuredData() }
         findViewById<Button>(R.id.clear_session).setOnClickListener { clearSession() }
+        findViewById<Button>(R.id.copy_probe).setOnClickListener {
+            copyText("Dashboard probe", lastProbeResult)
+        }
+        findViewById<Button>(R.id.copy_data).setOnClickListener {
+            copyText("Data JSON", lastDataResult)
+        }
+        findViewById<Button>(R.id.copy_docs).setOnClickListener {
+            copyText("OpenAI Docs URL", PRICING_DOCS_URL)
+        }
 
         if (savedInstanceState == null) webView.loadUrl(DASHBOARD_URL)
         else webView.restoreState(savedInstanceState)
@@ -80,9 +95,11 @@ class MainActivity : Activity() {
 
     private fun probePage() {
         if (!isChatGptPage()) {
-            result.text = "The current page is not ChatGPT. Finish sign-in, then open the dashboard."
+            lastProbeResult = "The current page is not ChatGPT. Finish sign-in, then open the dashboard."
+            result.text = lastProbeResult
             return
         }
+        lastProbeResult = ""
 
         // Only the current page's visible, limit-related lines reach Kotlin. No cookies,
         // localStorage, tokens, full DOM, or network response bodies are requested.
@@ -90,20 +107,23 @@ class MainActivity : Activity() {
             val text = runCatching { JSONTokener(jsonValue).nextValue() as String }
                 .getOrElse { "Could not decode the page probe." }
             val paths = synchronized(requestPaths) { requestPaths.take(24) }
-            result.text = buildString {
+            lastProbeResult = buildString {
                 append(text)
                 append("\n\nPossible dashboard request paths (no query strings):\n")
                 append(if (paths.isEmpty()) "None observed." else paths.joinToString("\n"))
             }
+            result.text = lastProbeResult
             status.text = "Probe complete. Compare these lines with the dashboard."
         }
     }
 
     private fun readStructuredData() {
         if (!isChatGptPage()) {
-            result.text = "Open the signed-in ChatGPT dashboard before reading data."
+            lastDataResult = "Open the signed-in ChatGPT dashboard before reading data."
+            result.text = lastDataResult
             return
         }
+        lastDataResult = ""
         status.text = "Reading structured limits from this WebView session…"
         result.text = "Waiting for /backend-api/wham/usage…"
         observedHeadersBeforeRead = synchronized(usageHeaderNames) {
@@ -115,7 +135,8 @@ class MainActivity : Activity() {
     private fun pollStructuredData(attempt: Int) {
         if (attempt >= 30) {
             status.text = "Data request timed out."
-            result.text = "No response after 15 seconds. Reload the dashboard and try again."
+            lastDataResult = "No response after 15 seconds. Reload the dashboard and try again."
+            result.text = lastDataResult
             return
         }
         mainHandler.postDelayed({
@@ -125,13 +146,15 @@ class MainActivity : Activity() {
                 when (data?.optString("state")) {
                     "ok" -> {
                         status.text = "Structured data read succeeded."
-                        result.text = "Dashboard request header names: $observedHeadersBeforeRead\n\n" +
+                        lastDataResult = "Dashboard request header names: $observedHeadersBeforeRead\n\n" +
                             data.optString("data", "No rate-limit fields found.")
+                        result.text = lastDataResult
                     }
                     "error" -> {
                         status.text = "Structured data read failed."
-                        result.text = "Dashboard request header names: $observedHeadersBeforeRead\n\n" +
+                        lastDataResult = "Dashboard request header names: $observedHeadersBeforeRead\n\n" +
                             data.optString("message", "Unknown error")
+                        result.text = lastDataResult
                     }
                     else -> pollStructuredData(attempt + 1)
                 }
@@ -144,6 +167,16 @@ class MainActivity : Activity() {
         return host == "chatgpt.com" || host.endsWith(".chatgpt.com")
     }
 
+    private fun copyText(label: String, value: String) {
+        if (value.isBlank()) {
+            Toast.makeText(this, "Run the matching probe first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+        Toast.makeText(this, "$label copied", Toast.LENGTH_SHORT).show()
+    }
+
     private fun clearSession() {
         CookieManager.getInstance().removeAllCookies {
             CookieManager.getInstance().flush()
@@ -152,6 +185,8 @@ class MainActivity : Activity() {
             webView.clearHistory()
             requestPaths.clear()
             usageHeaderNames.clear()
+            lastProbeResult = ""
+            lastDataResult = ""
             result.text = "Session cleared."
             status.text = "Sign in again to test session removal."
             webView.loadUrl(DASHBOARD_URL)
