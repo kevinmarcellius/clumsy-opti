@@ -2,6 +2,7 @@ package com.example.codexlimits
 
 import android.app.job.JobParameters
 import android.app.job.JobService
+import android.net.ConnectivityManager
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -26,7 +27,7 @@ class LimitRefreshJobService : JobService() {
         // Neither the cookie nor the short-lived access token is persisted by this job.
         val cookie = CookieManager.getInstance().getCookie(UsageHttpClient.SESSION_URL)
         val userAgent = WebSettings.getDefaultUserAgent(this)
-        val network = params.network
+        val network = getSystemService(ConnectivityManager::class.java).activeNetwork
         worker = Thread {
             val result = runCatching { UsageHttpClient.read(cookie, userAgent, network) }
             handler.post {

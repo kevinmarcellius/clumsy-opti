@@ -16,12 +16,12 @@ object RefreshScheduler {
         expedited: Boolean = false
     ) {
         if (!WidgetRenderer.hasWidgets(context) || SnapshotStore.isSignedOut(context)) return
-        val scheduler = context.getSystemService(JobScheduler::class.java)
-        val builder = JobInfo.Builder(JOB_ID, ComponentName(context, LimitRefreshJobService::class.java))
-            .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-        if (expedited) builder.setExpedited(true)
-        else builder.setMinimumLatency(delayMillis.coerceAtLeast(0))
-        val result = runCatching { scheduler.schedule(builder.build()) }
+        val result = runCatching {
+            val builder = JobInfo.Builder(JOB_ID, ComponentName(context, LimitRefreshJobService::class.java))
+            if (expedited) builder.setExpedited(true)
+            else builder.setMinimumLatency(delayMillis.coerceAtLeast(0))
+            context.getSystemService(JobScheduler::class.java).schedule(builder.build())
+        }
         if (result.getOrNull() != JobScheduler.RESULT_SUCCESS) {
             SnapshotStore.markError(context, "Refresh scheduling was rejected")
             WidgetRenderer.updateAll(context)
