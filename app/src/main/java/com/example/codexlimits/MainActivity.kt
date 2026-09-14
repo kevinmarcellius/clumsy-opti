@@ -2,6 +2,8 @@ package com.example.codexlimits
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -11,6 +13,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.TextView
 import org.json.JSONTokener
+import org.json.JSONObject
 
 /** A local-only feasibility probe. It neither copies cookies nor persists account data. */
 class MainActivity : Activity() {
@@ -18,6 +21,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var result: TextView
     private val requestPaths = java.util.Collections.synchronizedSet(linkedSetOf<String>())
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,6 +65,7 @@ class MainActivity : Activity() {
             webView.loadUrl(PRICING_DOCS_URL)
         }
         findViewById<Button>(R.id.probe).setOnClickListener { probePage() }
+        findViewById<Button>(R.id.read_data).setOnClickListener { readStructuredData() }
         findViewById<Button>(R.id.clear_session).setOnClickListener { clearSession() }
 
         if (savedInstanceState == null) webView.loadUrl(DASHBOARD_URL)
@@ -68,8 +73,7 @@ class MainActivity : Activity() {
     }
 
     private fun probePage() {
-        val host = android.net.Uri.parse(webView.url ?: "").host.orEmpty()
-        if (host != "chatgpt.com" && !host.endsWith(".chatgpt.com")) {
+        if (!isChatGptPage()) {
             result.text = "The current page is not ChatGPT. Finish sign-in, then open the dashboard."
             return
         }
@@ -87,6 +91,46 @@ class MainActivity : Activity() {
             }
             status.text = "Probe complete. Compare these lines with the dashboard."
         }
+    }
+
+    private fun readStructuredData() {
+        if (!isChatGptPage()) {
+            result.text = "Open the signed-in ChatGPT dashboard before reading data."
+            return
+        }
+        status.text = "Reading structured limits from this WebView session…"
+        result.text = "Waiting for /backend-api/wham/usage…"
+        webView.evaluateJavascript(START_DATA_READ_SCRIPT) { pollStructuredData(0) }
+    }
+
+    private fun pollStructuredData(attempt: Int) {
+        if (attempt >= 30) {
+            status.text = "Data request timed out."
+            result.text = "No response after 15 seconds. Reload the dashboard and try again."
+            return
+        }
+        mainHandler.postDelayed({
+            webView.evaluateJavascript("JSON.stringify(window.__codexLimitsDataProbe || {state:'pending'})") { encoded ->
+                val payload = runCatching { JSONTokener(encoded).nextValue() as String }.getOrNull()
+                val data = runCatching { JSONObject(payload ?: "{}") }.getOrNull()
+                when (data?.optString("state")) {
+                    "ok" -> {
+                        status.text = "Structured data read succeeded."
+                        result.text = data.optString("data", "No rate-limit fields found.")
+                    }
+                    "error" -> {
+                        status.text = "Structured data read failed."
+                        result.text = data.optString("message", "Unknown error")
+                    }
+                    else -> pollStructuredData(attempt + 1)
+                }
+            }
+        }, 500)
+    }
+
+    private fun isChatGptPage(): Boolean {
+        val host = android.net.Uri.parse(webView.url ?: "").host.orEmpty()
+        return host == "chatgpt.com" || host.endsWith(".chatgpt.com")
     }
 
     private fun clearSession() {
@@ -113,6 +157,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
         (webView.parent as? android.view.ViewGroup)?.removeView(webView)
         webView.destroy()
         super.onDestroy()
@@ -124,6 +169,30 @@ class MainActivity : Activity() {
         private val DATA_PATH_PATTERN = Regex("usage|limit|codex|wham", RegexOption.IGNORE_CASE)
         private val STATIC_ASSET_PATTERN = Regex("\\.(js|css|png|jpg|jpeg|svg|webp|woff2?)$", RegexOption.IGNORE_CASE)
         private val OPAQUE_SEGMENT_PATTERN = Regex("/[A-Za-z0-9_-]{32,}(?=/|$)")
+        private val START_DATA_READ_SCRIPT = """
+            (function () {
+              window.__codexLimitsDataProbe = {state: 'pending'};
+              fetch('/backend-api/wham/usage', {
+                method: 'GET', credentials: 'same-origin', cache: 'no-store'
+              }).then(async response => {
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                const body = await response.json();
+                const limits = {};
+                for (const key of ['rate_limit', 'rate_limits', 'rateLimits', 'rateLimitsByLimitId']) {
+                  if (Object.prototype.hasOwnProperty.call(body, key)) limits[key] = body[key];
+                }
+                window.__codexLimitsDataProbe = {
+                  state: 'ok',
+                  data: JSON.stringify({topLevelKeys: Object.keys(body), limits}, null, 2).slice(0, 10000)
+                };
+              }).catch(error => {
+                window.__codexLimitsDataProbe = {
+                  state: 'error', message: String(error && error.message || error)
+                };
+              });
+              return 'started';
+            })();
+        """.trimIndent()
         private val PROBE_SCRIPT = """
             (function () {
               const text = document.body ? document.body.innerText : '';

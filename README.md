@@ -13,6 +13,8 @@ To test on an Android 14+ phone or emulator:
 3. Tap **Probe**. Compare the shown lines with the visible dashboard, especially five-hour/weekly percentages and reset times. Reopen the app and repeat to test session persistence.
 4. Tap **Clear** and confirm the session is gone. Record whether sign-in works, whether the limit lines are present, and whether values change after a refresh.
 
+Once the page shows the limits, **Data JSON** makes an authenticated same-origin `GET https://chatgpt.com/backend-api/wham/usage` from inside the WebView. It displays only top-level field names and the `rate_limit`, `rate_limits`, `rateLimits`, or `rateLimitsByLimitId` fields, capped at 10,000 characters. The request sends the WebView's existing session credentials to ChatGPT; the app neither copies them nor logs them. This endpoint is undocumented and may change or disappear. The button tests whether its response matches the visible dashboard and the documented App Server rate-limit data contract.
+
 An updated GitHub Actions debug APK may have a different debug signing key. If Android says the update is incompatible, uninstall the previous proof APK before installing this one, then sign in again.
 
 Reading visible dashboard text is inherently brittle because it is not a documented API contract. A successful manual probe would not yet prove reliable unattended refresh. Do not build the widget from guessed or hard-coded values if this gate fails.
