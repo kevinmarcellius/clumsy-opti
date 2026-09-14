@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.codexlimits"
         minSdk = 34
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.6-widget-beta"
+        versionCode = 7
+        versionName = "0.7-widget-refresh"
     }
 
     compileOptions {
