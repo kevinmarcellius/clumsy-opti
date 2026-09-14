@@ -15,6 +15,8 @@ To test on an Android 14+ phone or emulator:
 
 Once the page shows the limits, **Data JSON** makes an authenticated same-origin `GET https://chatgpt.com/backend-api/wham/usage` from inside the WebView. It displays only top-level field names and the `rate_limit`, `rate_limits`, `rateLimits`, or `rateLimitsByLimitId` fields, capped at 10,000 characters. The request sends the WebView's existing session credentials to ChatGPT; the app neither copies them nor logs them. This endpoint is undocumented and may change or disappear. The button tests whether its response matches the visible dashboard and the documented App Server rate-limit data contract.
 
+If that same-origin request returns 401, the app tries `GET https://chatgpt.com/api/auth/session` and, only if the JSON supplies an `accessToken` or `access_token`, repeats the usage request with a Bearer header. The token stays in WebView JavaScript memory and is never displayed or passed to Kotlin. The result shows only HTTP status codes, session field **names**, and the original dashboard request's header **names**. A failed result does not prove that the dashboard is inaccessible; it identifies which authentication step still needs investigation.
+
 An updated GitHub Actions debug APK may have a different debug signing key. If Android says the update is incompatible, uninstall the previous proof APK before installing this one, then sign in again.
 
 Reading visible dashboard text is inherently brittle because it is not a documented API contract. A successful manual probe would not yet prove reliable unattended refresh. Do not build the widget from guessed or hard-coded values if this gate fails.

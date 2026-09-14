@@ -21,7 +21,9 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var result: TextView
     private val requestPaths = java.util.Collections.synchronizedSet(linkedSetOf<String>())
+    private val usageHeaderNames = java.util.Collections.synchronizedSet(linkedSetOf<String>())
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var observedHeadersBeforeRead = "None observed."
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,6 +54,10 @@ class MainActivity : Activity() {
                     ) {
                         // Never collect query strings, headers, bodies, or cookies.
                         requestPaths.add(path.replace(OPAQUE_SEGMENT_PATTERN, "/[id]"))
+                    }
+                    if (path == "/backend-api/wham/usage") {
+                        // Header names help diagnose the 401; values are never read or stored.
+                        usageHeaderNames.addAll(request.requestHeaders.keys)
                     }
                 }
                 return super.shouldInterceptRequest(view, request)
@@ -100,6 +106,9 @@ class MainActivity : Activity() {
         }
         status.text = "Reading structured limits from this WebView session…"
         result.text = "Waiting for /backend-api/wham/usage…"
+        observedHeadersBeforeRead = synchronized(usageHeaderNames) {
+            usageHeaderNames.take(30).sorted().joinToString(", ").ifEmpty { "None observed." }
+        }
         webView.evaluateJavascript(START_DATA_READ_SCRIPT) { pollStructuredData(0) }
     }
 
@@ -116,11 +125,13 @@ class MainActivity : Activity() {
                 when (data?.optString("state")) {
                     "ok" -> {
                         status.text = "Structured data read succeeded."
-                        result.text = data.optString("data", "No rate-limit fields found.")
+                        result.text = "Dashboard request header names: $observedHeadersBeforeRead\n\n" +
+                            data.optString("data", "No rate-limit fields found.")
                     }
                     "error" -> {
                         status.text = "Structured data read failed."
-                        result.text = data.optString("message", "Unknown error")
+                        result.text = "Dashboard request header names: $observedHeadersBeforeRead\n\n" +
+                            data.optString("message", "Unknown error")
                     }
                     else -> pollStructuredData(attempt + 1)
                 }
@@ -140,6 +151,7 @@ class MainActivity : Activity() {
             webView.clearCache(true)
             webView.clearHistory()
             requestPaths.clear()
+            usageHeaderNames.clear()
             result.text = "Session cleared."
             status.text = "Sign in again to test session removal."
             webView.loadUrl(DASHBOARD_URL)
@@ -172,20 +184,42 @@ class MainActivity : Activity() {
         private val START_DATA_READ_SCRIPT = """
             (function () {
               window.__codexLimitsDataProbe = {state: 'pending'};
-              fetch('/backend-api/wham/usage', {
-                method: 'GET', credentials: 'same-origin', cache: 'no-store'
-              }).then(async response => {
-                if (!response.ok) throw new Error('HTTP ' + response.status);
-                const body = await response.json();
+              const url = '/backend-api/wham/usage';
+              const options = {method: 'GET', credentials: 'same-origin', cache: 'no-store'};
+              const finish = (body, diagnostic) => {
                 const limits = {};
                 for (const key of ['rate_limit', 'rate_limits', 'rateLimits', 'rateLimitsByLimitId']) {
                   if (Object.prototype.hasOwnProperty.call(body, key)) limits[key] = body[key];
                 }
                 window.__codexLimitsDataProbe = {
                   state: 'ok',
-                  data: JSON.stringify({topLevelKeys: Object.keys(body), limits}, null, 2).slice(0, 10000)
+                  data: JSON.stringify({diagnostic, topLevelKeys: Object.keys(body), limits}, null, 2).slice(0, 10000)
                 };
-              }).catch(error => {
+              };
+              (async () => {
+                const diagnostic = {};
+                const direct = await fetch(url, options);
+                diagnostic.directStatus = direct.status;
+                if (direct.ok) return finish(await direct.json(), diagnostic);
+
+                const sessionResponse = await fetch('/api/auth/session', {credentials: 'same-origin'});
+                diagnostic.sessionStatus = sessionResponse.status;
+                if (!sessionResponse.ok) throw new Error(JSON.stringify(diagnostic));
+                const session = await sessionResponse.json();
+                diagnostic.sessionKeys = Object.keys(session);
+                const token = session.accessToken || session.access_token;
+                diagnostic.hasAccessToken = typeof token === 'string' && token.length > 0;
+                if (!diagnostic.hasAccessToken) throw new Error(JSON.stringify(diagnostic));
+
+                // The token remains in this page's JavaScript memory. It is not returned
+                // to Kotlin, stored, displayed, or written to Android logs.
+                const authorized = await fetch(url, {
+                  ...options, headers: {Authorization: 'Bearer ' + token}
+                });
+                diagnostic.authorizedStatus = authorized.status;
+                if (!authorized.ok) throw new Error(JSON.stringify(diagnostic));
+                finish(await authorized.json(), diagnostic);
+              })().catch(error => {
                 window.__codexLimitsDataProbe = {
                   state: 'error', message: String(error && error.message || error)
                 };
