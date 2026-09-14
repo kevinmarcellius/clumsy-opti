@@ -10,14 +10,22 @@ object RefreshScheduler {
     private const val JOB_ID = 75104
     private const val TWO_MINUTES = 2 * 60 * 1000L
 
-    fun schedule(context: Context, delayMillis: Long = TWO_MINUTES) {
+    fun schedule(
+        context: Context,
+        delayMillis: Long = TWO_MINUTES,
+        expedited: Boolean = false
+    ) {
         if (!WidgetRenderer.hasWidgets(context) || SnapshotStore.isSignedOut(context)) return
         val scheduler = context.getSystemService(JobScheduler::class.java)
-        val job = JobInfo.Builder(JOB_ID, ComponentName(context, LimitRefreshJobService::class.java))
-            .setMinimumLatency(delayMillis.coerceAtLeast(0))
+        val builder = JobInfo.Builder(JOB_ID, ComponentName(context, LimitRefreshJobService::class.java))
             .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-            .build()
-        scheduler.schedule(job)
+        if (expedited) builder.setExpedited(true)
+        else builder.setMinimumLatency(delayMillis.coerceAtLeast(0))
+        val result = runCatching { scheduler.schedule(builder.build()) }
+        if (result.getOrNull() != JobScheduler.RESULT_SUCCESS) {
+            SnapshotStore.markError(context, "Refresh scheduling was rejected")
+            WidgetRenderer.updateAll(context)
+        }
     }
 
     fun cancel(context: Context) {

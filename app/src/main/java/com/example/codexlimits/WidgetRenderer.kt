@@ -13,6 +13,7 @@ import java.util.Locale
 
 object WidgetRenderer {
     private const val STALE_AFTER_MILLIS = 10 * 60 * 1000L
+    private const val REFRESH_REQUEST_VISIBLE_MILLIS = 60 * 1000L
 
     fun hasWidgets(context: Context): Boolean = ids(context).isNotEmpty()
 
@@ -29,6 +30,7 @@ object WidgetRenderer {
         if (ids.isEmpty()) return
         val snapshot = SnapshotStore.snapshot(context)
         val error = SnapshotStore.error(context)
+        val refreshRequestedAt = SnapshotStore.refreshRequestedAt(context)
         val views = RemoteViews(context.packageName, R.layout.widget_limits)
         views.setTextViewText(R.id.widget_five, windowLabel("5 hours", snapshot?.fiveHours))
         views.setTextViewText(R.id.widget_five_reset, resetLabel(snapshot?.fiveHours))
@@ -39,9 +41,11 @@ object WidgetRenderer {
             snapshot?.let { "Last fetched: ${localTime(it.fetchedAtMillis)}" } ?: "Last fetched: Never"
         )
         val stale = snapshot != null && System.currentTimeMillis() - snapshot.fetchedAtMillis > STALE_AFTER_MILLIS
+        val refreshing = refreshRequestedAt > 0 &&
+            System.currentTimeMillis() - refreshRequestedAt < REFRESH_REQUEST_VISIBLE_MILLIS
         views.setTextViewText(
             R.id.widget_status,
-            error ?: if (snapshot == null) "Sign in in app" else if (stale) "Stale data" else "Current"
+            error ?: if (snapshot == null) "Sign in in app" else if (refreshing) "Refresh requested" else if (stale) "Stale data" else "Current"
         )
         val refreshIntent = Intent(context, LimitsWidgetProvider::class.java).setAction(LimitsWidgetProvider.ACTION_REFRESH)
         val refresh = PendingIntent.getBroadcast(

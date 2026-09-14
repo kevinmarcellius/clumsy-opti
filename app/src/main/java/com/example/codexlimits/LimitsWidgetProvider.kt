@@ -21,7 +21,11 @@ class LimitsWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action == ACTION_REFRESH) RefreshScheduler.schedule(context, 0)
+        if (intent.action == ACTION_REFRESH) {
+            SnapshotStore.markRefreshRequested(context)
+            WidgetRenderer.updateAll(context)
+            RefreshScheduler.schedule(context, expedited = true)
+        }
     }
 
     companion object {

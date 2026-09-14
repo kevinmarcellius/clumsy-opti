@@ -11,6 +11,7 @@ object SnapshotStore {
             .putLong("fetched_at", snapshot.fetchedAtMillis)
             .putString("bucket_id", snapshot.bucketId)
             .remove("error")
+            .remove("refresh_requested_at")
             .remove("signed_out")
         if (snapshot.fiveHours == null) editor.remove("five_percent").remove("five_reset")
         else editor.putInt("five_percent", snapshot.fiveHours.remainingPercent)
@@ -37,12 +38,23 @@ object SnapshotStore {
     fun error(context: Context): String? =
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getString("error", null)
 
+    fun refreshRequestedAt(context: Context): Long =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getLong("refresh_requested_at", 0)
+
     fun isSignedOut(context: Context): Boolean =
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getBoolean("signed_out", false)
 
     fun markError(context: Context, message: String) {
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .remove("refresh_requested_at")
             .putString("error", message.take(100)).apply()
+    }
+
+    fun markRefreshRequested(context: Context) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .remove("error")
+            .putLong("refresh_requested_at", System.currentTimeMillis())
+            .apply()
     }
 
     fun clear(context: Context) {

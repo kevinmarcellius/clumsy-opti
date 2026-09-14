@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.codexlimits"
         minSdk = 34
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.8-widget-network"
+        versionCode = 9
+        versionName = "0.9-widget-scheduling"
     }
 
     compileOptions {
