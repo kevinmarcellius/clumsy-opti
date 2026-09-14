@@ -1,4 +1,4 @@
-name: Build Android proof APK
+name: Build Android widget APK
 
 'on':
   workflow_dispatch:
@@ -24,13 +24,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK
-        run: ./gradlew --no-daemon :app:assembleDebug
+      - name: Test parser and build debug APK
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v6
         with:
-          name: codex-limits-proof-apk
+          name: codex-limits-widget-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

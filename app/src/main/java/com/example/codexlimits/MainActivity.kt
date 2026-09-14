@@ -17,13 +17,13 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONTokener
-import org.json.JSONObject
 
 /** A local-only feasibility probe. It neither copies cookies nor persists account data. */
 class MainActivity : Activity() {
     private lateinit var webView: WebView
     private lateinit var status: TextView
     private lateinit var result: TextView
+    private lateinit var snapshotSummary: TextView
     private val requestPaths = java.util.Collections.synchronizedSet(linkedSetOf<String>())
     private val usageHeaderNames = java.util.Collections.synchronizedSet(linkedSetOf<String>())
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -38,7 +38,9 @@ class MainActivity : Activity() {
         webView = findViewById(R.id.webview)
         status = findViewById(R.id.status)
         result = findViewById(R.id.result)
+        snapshotSummary = findViewById(R.id.snapshot_summary)
         result.movementMethod = android.text.method.ScrollingMovementMethod()
+        renderSnapshotSummary()
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
@@ -71,7 +73,7 @@ class MainActivity : Activity() {
         }
 
         findViewById<Button>(R.id.open_dashboard).setOnClickListener {
-            webView.loadUrl(DASHBOARD_URL)
+            webView.loadUrl(UsagePageClient.DASHBOARD_URL)
         }
         findViewById<Button>(R.id.open_docs).setOnClickListener {
             webView.loadUrl(PRICING_DOCS_URL)
@@ -89,7 +91,7 @@ class MainActivity : Activity() {
             copyText("OpenAI Docs URL", PRICING_DOCS_URL)
         }
 
-        if (savedInstanceState == null) webView.loadUrl(DASHBOARD_URL)
+        if (savedInstanceState == null) webView.loadUrl(UsagePageClient.DASHBOARD_URL)
         else webView.restoreState(savedInstanceState)
     }
 
@@ -129,7 +131,7 @@ class MainActivity : Activity() {
         observedHeadersBeforeRead = synchronized(usageHeaderNames) {
             usageHeaderNames.take(30).sorted().joinToString(", ").ifEmpty { "None observed." }
         }
-        webView.evaluateJavascript(START_DATA_READ_SCRIPT) { pollStructuredData(0) }
+        webView.evaluateJavascript(UsagePageClient.START_SCRIPT) { pollStructuredData(0) }
     }
 
     private fun pollStructuredData(attempt: Int) {
@@ -140,21 +142,36 @@ class MainActivity : Activity() {
             return
         }
         mainHandler.postDelayed({
-            webView.evaluateJavascript("JSON.stringify(window.__codexLimitsDataProbe || {state:'pending'})") { encoded ->
-                val payload = runCatching { JSONTokener(encoded).nextValue() as String }.getOrNull()
-                val data = runCatching { JSONObject(payload ?: "{}") }.getOrNull()
+            webView.evaluateJavascript(UsagePageClient.POLL_SCRIPT) { encoded ->
+                val data = UsagePageClient.decodePoll(encoded)
                 when (data?.optString("state")) {
                     "ok" -> {
-                        status.text = "Structured data read succeeded."
                         lastDataResult = "Dashboard request header names: $observedHeadersBeforeRead\n\n" +
                             data.optString("data", "No rate-limit fields found.")
                         result.text = lastDataResult
+                        runCatching {
+                            LimitParser.parse(data.getString("payload"))
+                        }.onSuccess { snapshot ->
+                            SnapshotStore.save(this, snapshot)
+                            WidgetRenderer.updateAll(this)
+                            RefreshScheduler.schedule(this)
+                            renderSnapshotSummary()
+                            status.text = "Widget data updated from Codex usage."
+                        }.onFailure {
+                            SnapshotStore.markError(this, "Limit data unavailable")
+                            WidgetRenderer.updateAll(this)
+                            renderSnapshotSummary()
+                            status.text = "Limit response could not be parsed."
+                        }
                     }
                     "error" -> {
                         status.text = "Structured data read failed."
                         lastDataResult = "Dashboard request header names: $observedHeadersBeforeRead\n\n" +
                             data.optString("message", "Unknown error")
                         result.text = lastDataResult
+                        SnapshotStore.markError(this, "Refresh failed; sign in or try again")
+                        WidgetRenderer.updateAll(this)
+                        renderSnapshotSummary()
                     }
                     else -> pollStructuredData(attempt + 1)
                 }
@@ -177,6 +194,10 @@ class MainActivity : Activity() {
         Toast.makeText(this, "$label copied", Toast.LENGTH_SHORT).show()
     }
 
+    private fun renderSnapshotSummary() {
+        snapshotSummary.text = WidgetRenderer.statusSummary(this)
+    }
+
     private fun clearSession() {
         CookieManager.getInstance().removeAllCookies {
             CookieManager.getInstance().flush()
@@ -187,9 +208,13 @@ class MainActivity : Activity() {
             usageHeaderNames.clear()
             lastProbeResult = ""
             lastDataResult = ""
+            SnapshotStore.clear(this)
+            RefreshScheduler.cancel(this)
+            WidgetRenderer.updateAll(this)
+            renderSnapshotSummary()
             result.text = "Session cleared."
             status.text = "Sign in again to test session removal."
-            webView.loadUrl(DASHBOARD_URL)
+            webView.loadUrl(UsagePageClient.DASHBOARD_URL)
         }
     }
 
@@ -211,57 +236,10 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val DASHBOARD_URL = "https://chatgpt.com/codex/settings/usage"
         private const val PRICING_DOCS_URL = "https://learn.chatgpt.com/docs/pricing"
         private val DATA_PATH_PATTERN = Regex("usage|limit|codex|wham", RegexOption.IGNORE_CASE)
         private val STATIC_ASSET_PATTERN = Regex("\\.(js|css|png|jpg|jpeg|svg|webp|woff2?)$", RegexOption.IGNORE_CASE)
         private val OPAQUE_SEGMENT_PATTERN = Regex("/[A-Za-z0-9_-]{32,}(?=/|$)")
-        private val START_DATA_READ_SCRIPT = """
-            (function () {
-              window.__codexLimitsDataProbe = {state: 'pending'};
-              const url = '/backend-api/wham/usage';
-              const options = {method: 'GET', credentials: 'same-origin', cache: 'no-store'};
-              const finish = (body, diagnostic) => {
-                const limits = {};
-                for (const key of ['rate_limit', 'rate_limits', 'rateLimits', 'rateLimitsByLimitId']) {
-                  if (Object.prototype.hasOwnProperty.call(body, key)) limits[key] = body[key];
-                }
-                window.__codexLimitsDataProbe = {
-                  state: 'ok',
-                  data: JSON.stringify({diagnostic, topLevelKeys: Object.keys(body), limits}, null, 2).slice(0, 10000)
-                };
-              };
-              (async () => {
-                const diagnostic = {};
-                const direct = await fetch(url, options);
-                diagnostic.directStatus = direct.status;
-                if (direct.ok) return finish(await direct.json(), diagnostic);
-
-                const sessionResponse = await fetch('/api/auth/session', {credentials: 'same-origin'});
-                diagnostic.sessionStatus = sessionResponse.status;
-                if (!sessionResponse.ok) throw new Error(JSON.stringify(diagnostic));
-                const session = await sessionResponse.json();
-                diagnostic.sessionKeys = Object.keys(session);
-                const token = session.accessToken || session.access_token;
-                diagnostic.hasAccessToken = typeof token === 'string' && token.length > 0;
-                if (!diagnostic.hasAccessToken) throw new Error(JSON.stringify(diagnostic));
-
-                // The token remains in this page's JavaScript memory. It is not returned
-                // to Kotlin, stored, displayed, or written to Android logs.
-                const authorized = await fetch(url, {
-                  ...options, headers: {Authorization: 'Bearer ' + token}
-                });
-                diagnostic.authorizedStatus = authorized.status;
-                if (!authorized.ok) throw new Error(JSON.stringify(diagnostic));
-                finish(await authorized.json(), diagnostic);
-              })().catch(error => {
-                window.__codexLimitsDataProbe = {
-                  state: 'error', message: String(error && error.message || error)
-                };
-              });
-              return 'started';
-            })();
-        """.trimIndent()
         private val PROBE_SCRIPT = """
             (function () {
               const text = document.body ? document.body.innerText : '';
