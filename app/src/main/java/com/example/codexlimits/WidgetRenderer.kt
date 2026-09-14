@@ -22,7 +22,11 @@ object WidgetRenderer {
         val five = windowLabel("5 hours", snapshot.fiveHours)
         val week = windowLabel("Weekly", snapshot.weekly)
         val error = SnapshotStore.error(context)?.let { " • $it" }.orEmpty()
-        return "$five • $week\nLast fetched ${localTime(snapshot.fetchedAtMillis)}$error"
+        val requestedAt = SnapshotStore.refreshRequestedAt(context)
+        val pending = if (requestedAt > 0 && System.currentTimeMillis() - requestedAt < REFRESH_REQUEST_VISIBLE_MILLIS) {
+            " • Refresh requested"
+        } else ""
+        return "$five • $week\nLast fetched ${localTime(snapshot.fetchedAtMillis)}$error$pending"
     }
 
     fun updateAll(context: Context) {
@@ -43,9 +47,10 @@ object WidgetRenderer {
         val stale = snapshot != null && System.currentTimeMillis() - snapshot.fetchedAtMillis > STALE_AFTER_MILLIS
         val refreshing = refreshRequestedAt > 0 &&
             System.currentTimeMillis() - refreshRequestedAt < REFRESH_REQUEST_VISIBLE_MILLIS
+        val status = error ?: if (snapshot == null) "Sign in in app" else if (refreshing) "Refresh requested" else if (stale) "Stale data" else "Current"
         views.setTextViewText(
             R.id.widget_status,
-            error ?: if (snapshot == null) "Sign in in app" else if (refreshing) "Refresh requested" else if (stale) "Stale data" else "Current"
+            status
         )
         val refreshIntent = Intent(context, LimitsWidgetProvider::class.java)
             .setAction(LimitsWidgetProvider.ACTION_REFRESH)
@@ -59,6 +64,7 @@ object WidgetRenderer {
         views.setOnClickPendingIntent(R.id.widget_refresh, refresh)
         views.setOnClickPendingIntent(R.id.widget_title, open)
         AppWidgetManager.getInstance(context).updateAppWidget(ids, views)
+        DiagnosticLog.append(context, "Widget update sent: status=$status fetched=${snapshot?.fetchedAtMillis ?: 0}")
     }
 
     private fun windowLabel(name: String, window: LimitWindow?): String =

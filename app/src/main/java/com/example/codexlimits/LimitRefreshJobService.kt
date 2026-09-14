@@ -16,30 +16,41 @@ import org.json.JSONObject
 class LimitRefreshJobService : JobService() {
     private val handler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
-    private var finished = false
+    private var finished = true
     private var readStarted = false
+    private var activeRunId = -1L
 
     override fun onStartJob(params: JobParameters): Boolean {
+        if (!WidgetRenderer.hasWidgets(this) || SnapshotStore.isSignedOut(this)) return false
+        val runId = params.extras.getLong("run_id", 0)
+        if (!finished) {
+            DiagnosticLog.append(this, "Previous background run superseded: run=$activeRunId")
+            releaseWebView()
+        }
         finished = false
         readStarted = false
-        if (!WidgetRenderer.hasWidgets(this) || SnapshotStore.isSignedOut(this)) return false
-        DiagnosticLog.append(this, "Background job started")
+        activeRunId = runId
+        DiagnosticLog.append(this, "Background job started: run=$runId")
         if (!getSystemService(PowerManager::class.java).isInteractive) {
-            DiagnosticLog.append(this, "Background job deferred: screen not interactive")
-            RefreshScheduler.schedule(this)
+            DiagnosticLog.append(this, "Background job deferred: screen not interactive, run=$runId")
+            SnapshotStore.markError(this, "Refresh deferred until screen is active")
+            WidgetRenderer.updateAll(this)
+            finished = true
+            activeRunId = -1L
+            handler.post { RefreshScheduler.schedule(this) }
             return false
         }
 
-        handler.postDelayed({ fail(params, "Background refresh timed out") }, 30_000)
+        handler.postDelayed({ fail(params, runId, "Background refresh timed out") }, 30_000)
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, url: String) {
-                    if (finished || readStarted) return
+                    if (!isActive(runId) || readStarted) return
                     readStarted = true
-                    DiagnosticLog.append(this@LimitRefreshJobService, "Local WebView document loaded")
-                    view.evaluateJavascript(UsagePageClient.START_SCRIPT) { poll(params, 0) }
+                    DiagnosticLog.append(this@LimitRefreshJobService, "Local WebView document loaded: run=$runId")
+                    view.evaluateJavascript(UsagePageClient.START_SCRIPT) { poll(params, runId, 0) }
                 }
 
                 override fun onReceivedError(
@@ -47,6 +58,7 @@ class LimitRefreshJobService : JobService() {
                     request: WebResourceRequest,
                     error: WebResourceError
                 ) {
+                    if (!isActive(runId)) return
                     val stage = requestStage(request.url.path.orEmpty()) ?: return
                     DiagnosticLog.append(
                         this@LimitRefreshJobService,
@@ -59,6 +71,7 @@ class LimitRefreshJobService : JobService() {
                     request: WebResourceRequest,
                     errorResponse: WebResourceResponse
                 ) {
+                    if (!isActive(runId)) return
                     val stage = requestStage(request.url.path.orEmpty()) ?: return
                     DiagnosticLog.append(
                         this@LimitRefreshJobService,
@@ -79,44 +92,45 @@ class LimitRefreshJobService : JobService() {
         return true
     }
 
-    private fun poll(params: JobParameters, attempt: Int) {
-        if (finished) return
+    private fun poll(params: JobParameters, runId: Long, attempt: Int) {
+        if (!isActive(runId)) return
         if (attempt >= 40) {
-            fail(params, "Background request timed out")
+            fail(params, runId, "Background request timed out")
             return
         }
         handler.postDelayed({
+            if (!isActive(runId)) return@postDelayed
             val view = webView ?: return@postDelayed
             view.evaluateJavascript(UsagePageClient.POLL_SCRIPT) { encoded ->
-                if (finished) return@evaluateJavascript
+                if (!isActive(runId)) return@evaluateJavascript
                 val data = UsagePageClient.decodePoll(encoded)
                 when (data?.optString("state")) {
                     "ok" -> {
                         runCatching { LimitParser.parse(data.getString("payload")) }
                             .onSuccess {
-                                DiagnosticLog.append(this, "Background usage read succeeded")
+                                DiagnosticLog.append(this, "Background usage read succeeded: run=$runId")
                                 SnapshotStore.save(this, it)
                                 WidgetRenderer.updateAll(this)
-                                finish(params)
+                                finish(params, runId)
                             }
-                            .onFailure { fail(params, "Background limit data unavailable") }
+                            .onFailure { fail(params, runId, "Background limit data unavailable") }
                     }
                     "error" -> {
                         DiagnosticLog.append(this, probeDetails(data))
-                        fail(params, probeError(data))
+                        fail(params, runId, probeError(data))
                     }
-                    else -> poll(params, attempt + 1)
+                    else -> poll(params, runId, attempt + 1)
                 }
             }
         }, 500)
     }
 
-    private fun fail(params: JobParameters, message: String) {
-        if (finished) return
+    private fun fail(params: JobParameters, runId: Long, message: String) {
+        if (!isActive(runId)) return
         DiagnosticLog.append(this, message)
         SnapshotStore.markError(this, message)
         WidgetRenderer.updateAll(this)
-        finish(params)
+        finish(params, runId)
     }
 
     private fun probeError(data: JSONObject): String {
@@ -154,24 +168,44 @@ class LimitRefreshJobService : JobService() {
         else -> null
     }
 
-    private fun finish(params: JobParameters) {
-        if (finished) return
-        finished = true
+    private fun isActive(runId: Long): Boolean = !finished && activeRunId == runId
+
+    private fun releaseWebView() {
         handler.removeCallbacksAndMessages(null)
         webView?.stopLoading()
         webView?.destroy()
         webView = null
+    }
+
+    private fun finish(params: JobParameters, runId: Long) {
+        if (!isActive(runId)) return
+        finished = true
+        activeRunId = -1L
+        releaseWebView()
         jobFinished(params, false)
         RefreshScheduler.schedule(this)
     }
 
     override fun onStopJob(params: JobParameters): Boolean {
-        DiagnosticLog.append(this, "Background job stopped by Android")
+        val runId = params.extras.getLong("run_id", 0)
+        if (!isActive(runId)) {
+            if (!SnapshotStore.isSignedOut(this)) {
+                DiagnosticLog.append(this, "Stop callback ignored for completed run=$runId")
+            }
+            return false
+        }
+        val replaced = params.stopReason == JobParameters.STOP_REASON_CANCELLED_BY_APP
+        val retry = WidgetRenderer.hasWidgets(this) && !SnapshotStore.isSignedOut(this) && !replaced
+        if (!SnapshotStore.isSignedOut(this)) {
+            DiagnosticLog.append(this, "Background job interrupted: run=$runId reason=${params.stopReason} retry=$retry")
+        }
         finished = true
-        handler.removeCallbacksAndMessages(null)
-        webView?.stopLoading()
-        webView?.destroy()
-        webView = null
-        return true
+        activeRunId = -1L
+        releaseWebView()
+        if (retry) {
+            SnapshotStore.markError(this, "Refresh interrupted; retrying")
+            WidgetRenderer.updateAll(this)
+        }
+        return retry
     }
 }
