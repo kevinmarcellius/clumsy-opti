@@ -52,6 +52,7 @@ object UsageHttpClient {
         }
         assigned.getOrNull()?.let { return it }
         val assignedFailure = assigned.exceptionOrNull()
+            ?: throw IllegalStateException("Network request completed without a result")
         if (assignedFailure !is IOException) throw assignedFailure
         return try {
             request(url, userAgent, cookie, token, null)
